@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Users, DollarSign, Trophy, Calendar, Edit, Save, X, Plus, Minus, Crown, Star } from 'lucide-react';
+import { Users, DollarSign, Trophy, Calendar, Edit, Save, X, Plus, Minus, Crown, Star, TrendingUp } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Player, Team, FantasyTeam, Roster } from '../../types/database';
 import { useAuth } from '../../contexts/AuthContext';
+import { useGameweek } from '../../hooks/useGameweek';
+import { useTransfers } from '../../hooks/useTransfers';
 import TeamCreation from './TeamCreation';
 import PlayerProfileModal from './PlayerProfileModal';
+import GameweekStatus from './GameweekStatus';
+import TransferStatus from './TransferStatus';
+import LivePointsTracker from './LivePointsTracker';
 import toast from 'react-hot-toast';
 
 interface PlayerWithTeam extends Player {
@@ -18,6 +23,7 @@ interface RosterPlayer extends Roster {
 
 export default function MyTeam() {
   const { user } = useAuth();
+  const { gameweekStatus } = useGameweek();
   const [fantasyTeam, setFantasyTeam] = useState<FantasyTeam | null>(null);
   const [roster, setRoster] = useState<RosterPlayer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,9 +34,9 @@ export default function MyTeam() {
   const [replacingRosterId, setReplacingRosterId] = useState<string | null>(null);
   const [selectedPlayerForProfile, setSelectedPlayerForProfile] = useState<PlayerWithTeam | null>(null);
   const [showPlayerProfile, setShowPlayerProfile] = useState(false);
+  const [activeTab, setActiveTab] = useState<'team' | 'points'>('team');
 
-  const TRANSFER_DEADLINE = new Date('2025-06-30');
-  const canMakeChanges = new Date() <= TRANSFER_DEADLINE;
+  const { transferData, makeTransfer } = useTransfers(fantasyTeam?.fantasy_team_id);
 
   useEffect(() => {
     if (user) {
@@ -164,41 +170,22 @@ export default function MyTeam() {
       return;
     }
 
-    try {
-      const { error } = await supabase
-        .from('rosters')
-        .update({ player_id: newPlayerId })
-        .eq('roster_id', rosterId);
+    const outgoingPlayer = roster.find(r => r.roster_id === rosterId)?.player;
+    if (!outgoingPlayer) {
+      toast.error('Player not found');
+      return;
+    }
 
-      if (error) throw error;
-
-      // Update budget after successful transfer
-      const outgoingPlayer = roster.find(r => r.roster_id === rosterId)?.player;
-      const incomingPlayer = availablePlayers.find(p => p.player_id === newPlayerId);
-      
-      if (outgoingPlayer && incomingPlayer && fantasyTeam) {
-        const newBudget = calculateBudgetAfterTransfer(outgoingPlayer, incomingPlayer);
-        
-        const { error: budgetError } = await supabase
-          .from('fantasy_teams')
-          .update({ budget_remaining: newBudget })
-          .eq('fantasy_team_id', fantasyTeam.fantasy_team_id);
-
-        if (budgetError) throw budgetError;
-        
-        // Update local state
-        setFantasyTeam(prev => prev ? { ...prev, budget_remaining: newBudget } : null);
-      }
-
-      toast.success('Player replaced successfully');
+    const success = await makeTransfer(outgoingPlayer.player_id, newPlayerId, rosterId);
+    
+    if (success) {
+      // Refresh team data
       if (fantasyTeam) {
+        await fetchFantasyTeam();
         await fetchRoster(fantasyTeam.fantasy_team_id);
       }
       setShowPlayerModal(false);
       setReplacingRosterId(null);
-    } catch (error) {
-      console.error('Error replacing player:', error);
-      toast.error('Failed to replace player');
     }
   };
 
@@ -265,6 +252,11 @@ export default function MyTeam() {
   };
 
   const openPlayerModal = (rosterId: string, position: string) => {
+    if (!transferData.canMakeTransfers) {
+      toast.error('Transfers are not allowed at this time');
+      return;
+    }
+    
     setReplacingRosterId(rosterId);
     setSelectedPosition(position);
     setShowPlayerModal(true);
@@ -305,7 +297,7 @@ export default function MyTeam() {
             <p className="text-emerald-100">Your Fantasy Soccer Team</p>
           </div>
           <div className="flex items-center space-x-4">
-            {canMakeChanges && (
+            {transferData.canMakeTransfers && (
               <button
                 onClick={() => {
                   setEditMode(!editMode);
@@ -377,187 +369,228 @@ export default function MyTeam() {
             </div>
           </div>
         </div>
-
-        {!canMakeChanges && (
-          <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-400/30 rounded-xl backdrop-blur-sm">
-            <p className="text-yellow-100 text-sm">
-              Transfer deadline has passed. You can no longer make changes to your team.
-            </p>
-          </div>
-        )}
       </div>
 
-      {/* Formation and Pitch */}
-      <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-white/50">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-gray-800">
-            Formation: {formation.defenders}-{formation.midfielders}-{formation.forwards}
-          </h2>
-          <div className="flex items-center space-x-4 text-sm text-gray-600">
-            {captain && (
-              <div className="flex items-center bg-yellow-100 px-3 py-1 rounded-full">
-                <Crown className="h-4 w-4 text-yellow-600 mr-1" />
-                Captain: {captain.player?.name}
-              </div>
-            )}
-            {viceCaptain && (
-              <div className="flex items-center bg-gray-100 px-3 py-1 rounded-full">
-                <Star className="h-4 w-4 text-gray-600 mr-1" />
-                Vice: {viceCaptain.player?.name}
-              </div>
-            )}
-          </div>
-        </div>
+      {/* Status Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <GameweekStatus />
+        <TransferStatus fantasyTeamId={fantasyTeam.fantasy_team_id} />
+      </div>
 
-        {/* Soccer Pitch */}
-        <div 
-          className="relative rounded-2xl min-h-[600px] bg-cover bg-center bg-no-repeat p-8 border-2 border-emerald-200"
-          style={{
-            backgroundImage: `url('https://i.imgur.com/x6NH58g.png')`,
-            backgroundSize: 'cover'
-          }}
-        >
-          {/* Starting XI */}
-          <div className="relative h-full flex flex-col justify-between py-8">
-            {/* Goalkeeper */}
-            <div className="flex justify-center mb-8">
-              {getPlayersByPosition('GK', true).map((rosterPlayer) => (
-                <PlayerCard
-                  key={rosterPlayer.roster_id}
-                  rosterPlayer={rosterPlayer}
-                  editMode={editMode}
-                  onReplace={() => openPlayerModal(rosterPlayer.roster_id, 'GK')}
-                  onSetCaptain={() => setCaptain(rosterPlayer.roster_id)}
-                  onSetViceCaptain={() => setViceCaptain(rosterPlayer.roster_id)}
-                  onPlayerClick={() => handlePlayerClick(rosterPlayer.player)}
-                />
-              ))}
-            </div>
-
-            {/* Defenders */}
-            <div className="flex justify-center space-x-6 mb-8">
-              {getPlayersByPosition('DEF', true).map((rosterPlayer) => (
-                <PlayerCard
-                  key={rosterPlayer.roster_id}
-                  rosterPlayer={rosterPlayer}
-                  editMode={editMode}
-                  onReplace={() => openPlayerModal(rosterPlayer.roster_id, 'DEF')}
-                  onSetCaptain={() => setCaptain(rosterPlayer.roster_id)}
-                  onSetViceCaptain={() => setViceCaptain(rosterPlayer.roster_id)}
-                  onPlayerClick={() => handlePlayerClick(rosterPlayer.player)}
-                />
-              ))}
-            </div>
-
-            {/* Midfielders */}
-            <div className="flex justify-center space-x-6 mb-8">
-              {getPlayersByPosition('MID', true).map((rosterPlayer) => (
-                <PlayerCard
-                  key={rosterPlayer.roster_id}
-                  rosterPlayer={rosterPlayer}
-                  editMode={editMode}
-                  onReplace={() => openPlayerModal(rosterPlayer.roster_id, 'MID')}
-                  onSetCaptain={() => setCaptain(rosterPlayer.roster_id)}
-                  onSetViceCaptain={() => setViceCaptain(rosterPlayer.roster_id)}
-                  onPlayerClick={() => handlePlayerClick(rosterPlayer.player)}
-                />
-              ))}
-            </div>
-
-            {/* Forwards */}
-            <div className="flex justify-center space-x-6">
-              {getPlayersByPosition('FWD', true).map((rosterPlayer) => (
-                <PlayerCard
-                  key={rosterPlayer.roster_id}
-                  rosterPlayer={rosterPlayer}
-                  editMode={editMode}
-                  onReplace={() => openPlayerModal(rosterPlayer.roster_id, 'FWD')}
-                  onSetCaptain={() => setCaptain(rosterPlayer.roster_id)}
-                  onSetViceCaptain={() => setViceCaptain(rosterPlayer.roster_id)}
-                  onPlayerClick={() => handlePlayerClick(rosterPlayer.player)}
-                />
-              ))}
-            </div>
-          </div>
+      {/* Tab Navigation */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="border-b border-gray-200">
+          <nav className="flex space-x-8 px-6">
+            <button
+              onClick={() => setActiveTab('team')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'team'
+                  ? 'border-emerald-500 text-emerald-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Users className="h-4 w-4 inline mr-2" />
+              My Team
+            </button>
+            <button
+              onClick={() => setActiveTab('points')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'points'
+                  ? 'border-emerald-500 text-emerald-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <TrendingUp className="h-4 w-4 inline mr-2" />
+              Live Points
+            </button>
+          </nav>
         </div>
       </div>
 
-      {/* Bench */}
-      <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-white/50">
-        <h2 className="text-xl font-semibold text-gray-800 mb-4">Substitutes</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {bench.map((rosterPlayer) => (
-            <div key={rosterPlayer.roster_id} className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-xl border border-gray-200 hover:shadow-md transition-all duration-200">
-              <div className="flex flex-col items-center">
-                {/* Player Jersey */}
-                <div 
-                  className="w-60 h-60 mb-2 relative cursor-pointer hover:scale-105 transition-transform"
-                  onClick={() => handlePlayerClick(rosterPlayer.player)}
-                >
-                  {rosterPlayer.player?.team_jersey ? (
-                    <img
-                      src={rosterPlayer.player.team_jersey}
-                      alt={`${rosterPlayer.player?.team_name} jersey`}
-                      className="w-full h-full object-contain"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        e.currentTarget.nextElementSibling!.style.display = 'flex';
-                      }}
-                    />
-                  ) : null}
-                  <div 
-                    className={`w-full h-full bg-gray-300 rounded-lg flex items-center justify-center ${
-                      rosterPlayer.player?.team_jersey ? 'hidden' : 'flex'
-                    }`}
-                  >
-                    <span className="text-xs text-gray-500">No Jersey</span>
+      {/* Tab Content */}
+      {activeTab === 'team' && (
+        <>
+          {/* Formation and Pitch */}
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-white/50">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold text-gray-800">
+                Formation: {formation.defenders}-{formation.midfielders}-{formation.forwards}
+              </h2>
+              <div className="flex items-center space-x-4 text-sm text-gray-600">
+                {captain && (
+                  <div className="flex items-center bg-yellow-100 px-3 py-1 rounded-full">
+                    <Crown className="h-4 w-4 text-yellow-600 mr-1" />
+                    Captain: {captain.player?.name}
                   </div>
-                  
-                  {/* Captain/Vice Captain badges */}
-                  {rosterPlayer.is_captain && (
-                    <div className="absolute -top-1 -right-1 bg-yellow-500 text-white rounded-full p-1">
-                      <Crown className="h-3 w-3" />
-                    </div>
-                  )}
-                  {rosterPlayer.is_vice_captain && (
-                    <div className="absolute -top-1 -right-1 bg-gray-500 text-white rounded-full p-1">
-                      <Star className="h-3 w-3" />
-                    </div>
-                  )}
-                </div>
-
-                {/* Player Info */}
-                <div className="text-center">
-                  <div 
-                    className="font-medium text-gray-900 text-sm mb-1 cursor-pointer hover:text-emerald-600 transition-colors"
-                    onClick={() => handlePlayerClick(rosterPlayer.player)}
-                  >
-                    {rosterPlayer.player?.name}
+                )}
+                {viceCaptain && (
+                  <div className="flex items-center bg-gray-100 px-3 py-1 rounded-full">
+                    <Star className="h-4 w-4 text-gray-600 mr-1" />
+                    Vice: {viceCaptain.player?.name}
                   </div>
-                  <div className="text-xs text-gray-600 mb-1">£{rosterPlayer.player?.price}M</div>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                    rosterPlayer.player?.position === 'GK' ? 'bg-purple-100 text-purple-800' :
-                    rosterPlayer.player?.position === 'DEF' ? 'bg-blue-100 text-blue-800' :
-                    rosterPlayer.player?.position === 'MID' ? 'bg-emerald-100 text-emerald-800' :
-                    'bg-orange-100 text-orange-800'
-                  }`}>
-                    {rosterPlayer.player?.position}
-                  </span>
-                </div>
-
-                {editMode && canMakeChanges && (
-                  <button
-                    onClick={() => openPlayerModal(rosterPlayer.roster_id, rosterPlayer.player?.position || '')}
-                    className="mt-2 text-emerald-600 hover:text-emerald-700 text-xs bg-emerald-50 px-2 py-1 rounded-full hover:bg-emerald-100 transition-colors"
-                  >
-                    <Edit className="h-3 w-3" />
-                  </button>
                 )}
               </div>
             </div>
-          ))}
-        </div>
-      </div>
+
+            {/* Soccer Pitch */}
+            <div 
+              className="relative rounded-2xl min-h-[600px] bg-cover bg-center bg-no-repeat p-8 border-2 border-emerald-200"
+              style={{
+                backgroundImage: `url('https://i.imgur.com/x6NH58g.png')`,
+                backgroundSize: 'cover'
+              }}
+            >
+              {/* Starting XI */}
+              <div className="relative h-full flex flex-col justify-between py-8">
+                {/* Goalkeeper */}
+                <div className="flex justify-center mb-8">
+                  {getPlayersByPosition('GK', true).map((rosterPlayer) => (
+                    <PlayerCard
+                      key={rosterPlayer.roster_id}
+                      rosterPlayer={rosterPlayer}
+                      editMode={editMode}
+                      canMakeTransfers={transferData.canMakeTransfers}
+                      onReplace={() => openPlayerModal(rosterPlayer.roster_id, 'GK')}
+                      onSetCaptain={() => setCaptain(rosterPlayer.roster_id)}
+                      onSetViceCaptain={() => setViceCaptain(rosterPlayer.roster_id)}
+                      onPlayerClick={() => handlePlayerClick(rosterPlayer.player)}
+                    />
+                  ))}
+                </div>
+
+                {/* Defenders */}
+                <div className="flex justify-center space-x-6 mb-8">
+                  {getPlayersByPosition('DEF', true).map((rosterPlayer) => (
+                    <PlayerCard
+                      key={rosterPlayer.roster_id}
+                      rosterPlayer={rosterPlayer}
+                      editMode={editMode}
+                      canMakeTransfers={transferData.canMakeTransfers}
+                      onReplace={() => openPlayerModal(rosterPlayer.roster_id, 'DEF')}
+                      onSetCaptain={() => setCaptain(rosterPlayer.roster_id)}
+                      onSetViceCaptain={() => setViceCaptain(rosterPlayer.roster_id)}
+                      onPlayerClick={() => handlePlayerClick(rosterPlayer.player)}
+                    />
+                  ))}
+                </div>
+
+                {/* Midfielders */}
+                <div className="flex justify-center space-x-6 mb-8">
+                  {getPlayersByPosition('MID', true).map((rosterPlayer) => (
+                    <PlayerCard
+                      key={rosterPlayer.roster_id}
+                      rosterPlayer={rosterPlayer}
+                      editMode={editMode}
+                      canMakeTransfers={transferData.canMakeTransfers}
+                      onReplace={() => openPlayerModal(rosterPlayer.roster_id, 'MID')}
+                      onSetCaptain={() => setCaptain(rosterPlayer.roster_id)}
+                      onSetViceCaptain={() => setViceCaptain(rosterPlayer.roster_id)}
+                      onPlayerClick={() => handlePlayerClick(rosterPlayer.player)}
+                    />
+                  ))}
+                </div>
+
+                {/* Forwards */}
+                <div className="flex justify-center space-x-6">
+                  {getPlayersByPosition('FWD', true).map((rosterPlayer) => (
+                    <PlayerCard
+                      key={rosterPlayer.roster_id}
+                      rosterPlayer={rosterPlayer}
+                      editMode={editMode}
+                      canMakeTransfers={transferData.canMakeTransfers}
+                      onReplace={() => openPlayerModal(rosterPlayer.roster_id, 'FWD')}
+                      onSetCaptain={() => setCaptain(rosterPlayer.roster_id)}
+                      onSetViceCaptain={() => setViceCaptain(rosterPlayer.roster_id)}
+                      onPlayerClick={() => handlePlayerClick(rosterPlayer.player)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bench */}
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-white/50">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Substitutes</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {bench.map((rosterPlayer) => (
+                <div key={rosterPlayer.roster_id} className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-xl border border-gray-200 hover:shadow-md transition-all duration-200">
+                  <div className="flex flex-col items-center">
+                    {/* Player Jersey */}
+                    <div 
+                      className="w-60 h-60 mb-2 relative cursor-pointer hover:scale-105 transition-transform"
+                      onClick={() => handlePlayerClick(rosterPlayer.player)}
+                    >
+                      {rosterPlayer.player?.team_jersey ? (
+                        <img
+                          src={rosterPlayer.player.team_jersey}
+                          alt={`${rosterPlayer.player?.team_name} jersey`}
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                            e.currentTarget.nextElementSibling!.style.display = 'flex';
+                          }}
+                        />
+                      ) : null}
+                      <div 
+                        className={`w-full h-full bg-gray-300 rounded-lg flex items-center justify-center ${
+                          rosterPlayer.player?.team_jersey ? 'hidden' : 'flex'
+                        }`}
+                      >
+                        <span className="text-xs text-gray-500">No Jersey</span>
+                      </div>
+                      
+                      {/* Captain/Vice Captain badges */}
+                      {rosterPlayer.is_captain && (
+                        <div className="absolute -top-1 -right-1 bg-yellow-500 text-white rounded-full p-1">
+                          <Crown className="h-3 w-3" />
+                        </div>
+                      )}
+                      {rosterPlayer.is_vice_captain && (
+                        <div className="absolute -top-1 -right-1 bg-gray-500 text-white rounded-full p-1">
+                          <Star className="h-3 w-3" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Player Info */}
+                    <div className="text-center">
+                      <div 
+                        className="font-medium text-gray-900 text-sm mb-1 cursor-pointer hover:text-emerald-600 transition-colors"
+                        onClick={() => handlePlayerClick(rosterPlayer.player)}
+                      >
+                        {rosterPlayer.player?.name}
+                      </div>
+                      <div className="text-xs text-gray-600 mb-1">£{rosterPlayer.player?.price}M</div>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                        rosterPlayer.player?.position === 'GK' ? 'bg-purple-100 text-purple-800' :
+                        rosterPlayer.player?.position === 'DEF' ? 'bg-blue-100 text-blue-800' :
+                        rosterPlayer.player?.position === 'MID' ? 'bg-emerald-100 text-emerald-800' :
+                        'bg-orange-100 text-orange-800'
+                      }`}>
+                        {rosterPlayer.player?.position}
+                      </span>
+                    </div>
+
+                    {editMode && transferData.canMakeTransfers && (
+                      <button
+                        onClick={() => openPlayerModal(rosterPlayer.roster_id, rosterPlayer.player?.position || '')}
+                        className="mt-2 text-emerald-600 hover:text-emerald-700 text-xs bg-emerald-50 px-2 py-1 rounded-full hover:bg-emerald-100 transition-colors"
+                      >
+                        <Edit className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {activeTab === 'points' && (
+        <LivePointsTracker fantasyTeamId={fantasyTeam.fantasy_team_id} />
+      )}
 
       {/* Player Replacement Modal */}
       {showPlayerModal && (
@@ -568,7 +601,7 @@ export default function MyTeam() {
                 <h3 className="text-xl font-semibold text-gray-800">Replace {selectedPosition} Player</h3>
                 {fantasyTeam && (
                   <p className="text-sm text-gray-600 mt-1">
-                    Current Budget: £{fantasyTeam.budget_remaining}M
+                    Current Budget: £{fantasyTeam.budget_remaining}M | Transfers Remaining: {transferData.transfersRemaining}
                   </p>
                 )}
               </div>
@@ -662,13 +695,14 @@ export default function MyTeam() {
 interface PlayerCardProps {
   rosterPlayer: RosterPlayer;
   editMode: boolean;
+  canMakeTransfers: boolean;
   onReplace: () => void;
   onSetCaptain: () => void;
   onSetViceCaptain: () => void;
   onPlayerClick: () => void;
 }
 
-function PlayerCard({ rosterPlayer, editMode, onReplace, onSetCaptain, onSetViceCaptain, onPlayerClick }: PlayerCardProps) {
+function PlayerCard({ rosterPlayer, editMode, canMakeTransfers, onReplace, onSetCaptain, onSetViceCaptain, onPlayerClick }: PlayerCardProps) {
   return (
     <div className="relative flex flex-col items-center">
       {/* Player Jersey - Bigger Size */}
@@ -721,7 +755,7 @@ function PlayerCard({ rosterPlayer, editMode, onReplace, onSetCaptain, onSetVice
         </div>
       </div>
 
-      {editMode && (
+      {editMode && canMakeTransfers && (
         <div className="mt-2 flex space-x-1">
           <button
             onClick={onReplace}
