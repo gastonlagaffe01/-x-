@@ -229,6 +229,9 @@ export interface Database {
           rank: number;
           budget_remaining: number;
           transfers_remaining: number;
+          transfers_made_this_gw: number;
+          transfers_banked: number;
+          current_gameweek: number;
           created_at: string;
           updated_at: string;
         };
@@ -242,6 +245,9 @@ export interface Database {
           rank?: number;
           budget_remaining?: number;
           transfers_remaining?: number;
+          transfers_made_this_gw?: number;
+          transfers_banked?: number;
+          current_gameweek?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -255,6 +261,9 @@ export interface Database {
           rank?: number;
           budget_remaining?: number;
           transfers_remaining?: number;
+          transfers_made_this_gw?: number;
+          transfers_banked?: number;
+          current_gameweek?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -352,6 +361,7 @@ export interface Database {
           transaction_type: 'draft' | 'transfer_in' | 'transfer_out' | 'captain_change';
           gameweek: number;
           price: number | null;
+          transfer_cost: number;
           created_at: string;
         };
         Insert: {
@@ -361,6 +371,7 @@ export interface Database {
           transaction_type: 'draft' | 'transfer_in' | 'transfer_out' | 'captain_change';
           gameweek: number;
           price?: number | null;
+          transfer_cost?: number;
           created_at?: string;
         };
         Update: {
@@ -370,6 +381,7 @@ export interface Database {
           transaction_type?: 'draft' | 'transfer_in' | 'transfer_out' | 'captain_change';
           gameweek?: number;
           price?: number | null;
+          transfer_cost?: number;
           created_at?: string;
         };
       };
@@ -411,6 +423,58 @@ export interface Database {
           created_at?: string;
         };
       };
+      gameweeks: {
+        Row: {
+          gameweek_id: number;
+          gameweek_number: number;
+          start_date: string;
+          end_date: string;
+          status: 'upcoming' | 'active' | 'locked' | 'finalized';
+          created_at: string;
+        };
+        Insert: {
+          gameweek_id?: number;
+          gameweek_number: number;
+          start_date: string;
+          end_date: string;
+          status?: 'upcoming' | 'active' | 'locked' | 'finalized';
+          created_at?: string;
+        };
+        Update: {
+          gameweek_id?: number;
+          gameweek_number?: number;
+          start_date?: string;
+          end_date?: string;
+          status?: 'upcoming' | 'active' | 'locked' | 'finalized';
+          created_at?: string;
+        };
+      };
+      fantasy_team_gameweek_points: {
+        Row: {
+          id: string;
+          fantasy_team_id: string;
+          gameweek: number;
+          points: number;
+          rank_in_league: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          fantasy_team_id: string;
+          gameweek: number;
+          points?: number;
+          rank_in_league?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          fantasy_team_id?: string;
+          gameweek?: number;
+          points?: number;
+          rank_in_league?: number | null;
+          created_at?: string;
+        };
+      };
     };
   };
 }
@@ -425,3 +489,5 @@ export type Roster = Database['public']['Tables']['rosters']['Row'];
 export type GameweekScore = Database['public']['Tables']['gameweek_scores']['Row'];
 export type Transaction = Database['public']['Tables']['transactions']['Row'];
 export type Matchup = Database['public']['Tables']['matchups']['Row'];
+export type Gameweek = Database['public']['Tables']['gameweeks']['Row'];
+export type FantasyTeamGameweekPoints = Database['public']['Tables']['fantasy_team_gameweek_points']['Row'];

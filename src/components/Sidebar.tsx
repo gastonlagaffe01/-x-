@@ -11,7 +11,8 @@ import {
   LogOut,
   X,
   User,
-  Play
+  Play,
+  TrendingUp
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -28,13 +29,14 @@ const adminNavigation = [
   { id: 'users', name: 'Users', path: '/users', icon: Shield },
   { id: 'leagues', name: 'Leagues', path: '/leagues', icon: Trophy },
   { id: 'matches', name: 'Real Matches', path: '/matches', icon: Calendar },
-  { id: 'simulation', name: 'Match Simulation', path: '/simulation', icon: Play },
+  { id: 'simulate', name: 'Simulate Games', path: '/admin/simulate-games', icon: Play },
   { id: 'analytics', name: 'Analytics', path: '/analytics', icon: BarChart3 },
   { id: 'settings', name: 'Settings', path: '/settings', icon: Settings },
 ];
 
 const userNavigation = [
-  { id: 'my-team', name: 'My Team', path: '/my-team', icon: User },
+  { id: 'my-team', name: 'My Team', path: '/team', icon: User },
+  { id: 'team-points', name: 'Team Points', path: '/teampoint', icon: TrendingUp },
   { id: 'leagues', name: 'Leagues', path: '/leagues', icon: Trophy },
   { id: 'fixtures', name: 'Fixtures', path: '/fixtures', icon: Calendar },
 ];

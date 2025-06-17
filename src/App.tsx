@@ -16,8 +16,9 @@ import UsersManager from './components/users/UsersManager';
 import LeaguesManager from './components/leagues/LeaguesManager';
 import UserLeaguesManager from './components/leagues/UserLeaguesManager';
 import MatchesManager from './components/matches/MatchesManager';
-import SimulationManager from './components/simulation/SimulationManager';
+import AdminSimulateGames from './components/admin/AdminSimulateGames';
 import MyTeam from './components/fantasy/MyTeam';
+import TeamPointsHistory from './components/user/TeamPointsHistory';
 import LoginForm from './components/auth/LoginForm';
 import SignupForm from './components/auth/SignupForm';
 import WorkInProgress from './components/WorkInProgress';
@@ -34,7 +35,7 @@ function Layout({ children, isAdmin = true }: { children: React.ReactNode, isAdm
   }
 
   // If not admin, show work in progress page for admin routes
-  if (!isAdmin && ['/teams', '/players', '/users', '/matches', '/simulation'].includes(location.pathname)) {
+  if (!isAdmin && ['/teams', '/players', '/users', '/matches', '/admin/simulate-games'].includes(location.pathname)) {
     return <WorkInProgress />;
   }
 
@@ -103,11 +104,22 @@ function AppRoutes() {
         />
         
         <Route
-          path="/my-team"
+          path="/team"
           element={
             <ProtectedRoute>
               <Layout isAdmin={isAdmin}>
                 <MyTeam />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/teampoint"
+          element={
+            <ProtectedRoute>
+              <Layout isAdmin={isAdmin}>
+                <TeamPointsHistory />
               </Layout>
             </ProtectedRoute>
           }
@@ -169,11 +181,11 @@ function AppRoutes() {
         />
 
         <Route
-          path="/simulation"
+          path="/admin/simulate-games"
           element={
             <ProtectedRoute>
               <Layout isAdmin={isAdmin}>
-                {isAdmin ? <SimulationManager /> : <WorkInProgress />}
+                {isAdmin ? <AdminSimulateGames /> : <WorkInProgress />}
               </Layout>
             </ProtectedRoute>
           }
